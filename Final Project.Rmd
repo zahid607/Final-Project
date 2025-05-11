@@ -1,0 +1,236 @@
+---
+title: 'Data 607: Final Project'
+author: "Mohammad Zahid Chowdhury"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Overview of the dataset: This dataset includes all valid felony, misdemeanor, and violation crimes reported to the New York City Police Department (NYPD) in 2024.The data is collected from open data from NYC open data and provided by New York City Police Department(NYPD). Here is the link of dataset.
+
+
+
+# Data Source Link: https://data.cityofnewyork.us/Public-Safety/NYPD-Complaint-Data-Historic/qgea-i56i/about_data
+
+
+# Loading packages and libraries:
+
+```{r}
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+install.packages(c("dplyr", "tiydverse", "lubridate", "ggplot2", "leaflet", "readr", "sf", "htmlwidgets"))
+
+library(dplyr)
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(leaflet)
+library(readr)
+library(sf)
+library(htmlwidgets)
+
+```
+
+# Loading the dataset:
+
+```{r}
+crime_data2024 <- read.csv("https://media.githubusercontent.com/media/zahid607/Final-Project/refs/heads/main/NYPD_Complaint_Data_2024.csv")
+
+head(crime_data2024)
+
+```
+
+
+# Structure of the dataset:
+
+```{r}
+str(crime_data2024)
+
+```
+
+# Columns of the dataset:
+
+```{r}
+colnames(crime_data2024)
+```
+# Clean up date and time and prepare the data:
+
+```{r}
+crime_data2024 <- crime_data2024 %>%
+  mutate(
+    RPT_DT = as.Date(RPT_DT, format = "%m/%d/%Y"),
+    CMPLNT_FR_TM = hms::as_hms(CMPLNT_FR_TM),
+    Hour = hour(CMPLNT_FR_TM),
+    Day = wday(RPT_DT, label = TRUE),
+    Month = month(RPT_DT, label = TRUE),
+    Week = isoweek(RPT_DT),
+    Season = case_when(
+      as.character(Month) %in% c("Dec", "Jan", "Feb") ~ "Winter",
+      as.character(Month) %in% c("Mar", "Apr", "May") ~ "Spring",
+      as.character(Month) %in% c("Jun", "Jul", "Aug") ~ "Summer",
+      TRUE ~ "Fall"
+    )
+  )
+
+```
+
+# Index Crimes of the dataset: 
+
+```{r}
+index_crimes <- c("MURDER & NON-NEGL. MANSLAUGHTER",
+                  "RAPE",
+                  "ROBBERY",
+                  "FELONY ASSAULT",
+                  "BURGLARY",
+                  "GRAND LARCENY",
+                  "GRAND LARCENY OF MOTOR VEHICLE")
+
+
+index_crime_data <- crime_data2024 %>%
+  filter(OFNS_DESC %in% index_crimes)
+
+index_crime_data %>%
+  count(OFNS_DESC, sort = TRUE)
+
+```
+
+# Index Crimes group by borough:
+
+```{r}
+index_crime_summary <- crime_data2024 %>%
+  filter(OFNS_DESC %in% index_crimes) %>%
+  group_by(BORO_NM) %>%
+  summarise(Total_Index_Crimes = n()) %>%
+  arrange(desc(Total_Index_Crimes))
+
+# View the result
+print(index_crime_summary)
+```
+
+# Now Focus on robbery:
+
+```{r}
+robbery_data <- crime_data2024 %>%
+  filter(OFNS_DESC == "ROBBERY", !is.na(Latitude), !is.na(Longitude))
+
+```
+
+
+# Filter for robbery crime and group by borough & Bar diagram:
+
+
+```{r}
+robbery_by_borough <- crime_data2024 %>%
+  filter(OFNS_DESC == "ROBBERY") %>%
+  group_by(BORO_NM) %>%
+  summarise(Robbery_Count = n()) %>%
+  arrange(desc(Robbery_Count))
+
+# Bar plot
+ggplot(robbery_by_borough, aes(x = reorder(BORO_NM, Robbery_Count), y = Robbery_Count)) +
+  geom_bar(stat = "identity", fill = "LightBlue") +
+  geom_text(aes(label = Robbery_Count), hjust = -0.1, size = 4) +  # Add labels
+  coord_flip() +  # Rotate for readability
+  labs(title = "Robbery Counts by Borough",
+       x = "Borough",
+       y = "Number of Robbery Complaints") +
+  theme_minimal()
+
+
+```
+
+
+# Robberies by Hour:
+
+```{r}
+ggplot(robbery_data, aes(x = Hour)) +
+  geom_bar(fill = "tomato") +
+  labs(title = "Robberies by Hour", x = "Hour of Day", y = "Count") +
+  theme_minimal()
+
+```
+
+# Robberies by day of week:
+
+```{r}
+ggplot(robbery_data, aes(x = Day)) +
+  geom_bar(fill = "skyblue") +
+  labs(title = "Robberies by Day of Week", x = "Day", y = "Count") +
+  theme_minimal()
+
+```
+
+# Monthly Robbery Trend:
+
+
+```{r}
+# Group by month
+monthly_robbery <- robbery_data %>%
+  group_by(Month) %>%
+  summarise(Count = n())
+
+ggplot(monthly_robbery, aes(x = Month, y = Count)) +
+  geom_col(fill = "steelblue") +
+  labs(title = "Monthly Robbery Trends in 2024", y = "Number of Robberies") +
+  theme_minimal()
+
+```
+
+# Seasonal Robbery Trend:
+
+```{r}
+
+ggplot(robbery_data, aes(x = Season)) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Number of Robbery Crimes by Season",
+    x = "Season",
+    y = "Number of Robbery Crimes"
+  ) +
+  theme_minimal()
+
+```
+
+# Spatial Mapping with Leaflet (Hotspot Visualization):
+
+```{r}
+leaflet(data = robbery_data) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng = ~Longitude,
+    lat = ~Latitude,
+    radius = 4,
+    color = "red",
+    fillOpacity = 0.4,
+    popup = ~paste("Date:", RPT_DT)
+  )
+```
+
+# To save the map:
+
+```{r}
+
+map <- leaflet(data = robbery_data) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng = ~Longitude,
+    lat = ~Latitude,
+    radius = 4,
+    color = "red",
+    fillOpacity = 0.4
+  )
+
+htmlwidgets::saveWidget(map, "robbery_hotspots_2024.html")
+
+```
+
+
+
+
+# Conclusion: Based on the analysis of the crime_data2024 dataset, several meaningful patterns emerged. Crime activity in New York City varied notably by season, with increased incidents during the summer months, possibly due to higher foot traffic and social activity. The hourly distribution showed that most crimes occurred during late afternoon and evening hours, indicating a potential link to commuting or nightlife. Additionally, borough-level analysis revealed Bronx and Brooklyn as hotspots for reported crimes, particularly in Summar for robbery-related cases.These insights suggest that crime prevention efforts could benefit from being seasonal and time-targeted, especially during high-risk hours and months. Further exploration into specific crime types, neighborhood-level data, and socioeconomic factors could provide a deeper understanding of root causes and help shape policy or policing strategies.
